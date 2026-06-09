@@ -189,9 +189,11 @@ def call(Map cfg = [:]) {
                         transferArgs.sourceFiles = isDefferent ? "${cfg.SPECIFIC_REVISION}_version.zip,${cfg.DEPLOY_FOLDER}.zip" : "${cfg.DEPLOY_FOLDER}.zip"
 
                         if (cfg.AUTO_RELOAD != null && cfg.AUTO_RELOAD) {
-                            //FILES_TO_BACKUP    : ["zenius8/WEB-INF/conf/db.properties", "zenius8/WEB-INF/conf/zenius.properties"]
-                            def command = "cd ${cfg.TEST_WEB_PATH} && "
+                            // 1. set -x 추가로 명령어 실행 과정을 콘솔에 다 찍히게 설정
+                            def command = "set -x && cd ${cfg.TEST_WEB_PATH} && "
+                            
                             if (cfg.FILES_TO_BACKUP != null && cfg.FILES_TO_BACKUP.size() > 0) {
+                                command += "echo '▶ [STEP 1] Backup files...' && "
                                 command += "rm -rf backup && "
                                 command += "mkdir -p backup && "
 
@@ -199,25 +201,34 @@ def call(Map cfg = [:]) {
                                     command += "if [ -f \"${filePath}\" ]; then cp --parents \"${filePath}\" backup/; fi && "
                                 }
                             }
-                            // 기존 컨텍스트 폴더 제거
+                            
+                            command += "echo '▶ [STEP 2] Remove old contexts...' && "
                             command += "rm -rf ${cfg.ZENIUS_VERSION} ${cfg.ZENIUS_VERSION}_oz && "
-                            // 이전 리비전으로 복구
+                            
+                            command += "echo '▶ [STEP 3] Restore specific version if exists...' && "
                             command += "if [ -f \"${cfg.SPECIFIC_REVISION}_version.zip\" ]; then unzip -o ${cfg.SPECIFIC_REVISION}_version.zip -d ./; fi && "
-                            // 변경된 파일 적용
+                            
+                            command += "echo '▶ [STEP 4] Apply deployment package...' && "
                             command += "unzip -o ${cfg.DEPLOY_FOLDER}.zip -d ./ && "
-                            // 삭제된 파일 적용
+                            
+                            command += "echo '▶ [STEP 5] Run file deletion script if exists...' && "
                             command += "if [ -f \"delete_removed_files.sh\" ]; then chmod +x \"delete_removed_files.sh\"; ./delete_removed_files.sh; fi && "
-                            // 백업 파일 복구
-                            command += "cp -r backup/* ./ && "
-                            // 폴더 정리
+                            
+                            // 2. 백업 복사 명령어 개선 (backup/* -> backup/.) - 빈 폴더 복사 시 에러 방지
+                            command += "echo '▶ [STEP 6] Restore backup files...' && "
+                            command += "if [ -d backup ]; then cp -r backup/. ./; fi && "
+                            
+                            command += "echo '▶ [STEP 7] Cleanup temporary files...' && "
                             command += "rm -rf backup ${cfg.SPECIFIC_REVISION}_version.zip && "
-                            // 톰캣 재시작
-                            command += "${cfg.TEST_WEB_PATH}/../bin/shutdown.sh && "
+                            
+                            // 3. 톰캣 종료 오류 무시 처리 및 구동 로그 추가
+                            command += "echo '▶ [STEP 8] Restarting Tomcat...' && "
+                            command += "(${cfg.TEST_WEB_PATH}/../bin/shutdown.sh || true) && "
                             command += "${cfg.TEST_WEB_PATH}/../bin/startup.sh && "
                             command += "echo \"[DEPLOY COMPLETED]\""
 
                             transferArgs.execCommand = command
-                            echo "${command}"
+                            echo "Generated Remote Command: ${command}"
                         }
                         sshPublisher(
                             continueOnError: false,
@@ -247,6 +258,15 @@ def call(Map cfg = [:]) {
                 steps {
                     // 생성된 ${cfg.DEPLOY_FOLDER}.zip 파일을 아티팩트로 아카이브
                     archiveArtifacts artifacts: "${cfg.DEPLOY_FOLDER}.zip"
+                }
+            }
+            stage('Commit Deploy Folder') {
+                steps {
+                    script {
+                        echo "Commit changed files to SVN Deploy Folder..."
+                        
+                    }
+
                 }
             }
         }
