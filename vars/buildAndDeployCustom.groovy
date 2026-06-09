@@ -145,7 +145,7 @@ def call(Map cfg = [:]) {
                                 
                                 # 삭제할 파일 스크립트 생성
                                 OLD_PATH="${env.WORKSPACE}/old/${cfg.SPECIFIC_REVISION}/build/unzip/"
-                                awk -v path="\$OLD_PATH" 'index(\$0, "Only in " path) == 1 {sub(":", "", \$3);filePath = \$3 "/" \$NF;gsub(path, "", filePath);printf "rm -f \\"%s\\"\\n", filePath;}' diff_result.txt > diff_files/delete_removed_files.sh
+                                awk -v path="\$OLD_PATH" 'index(\$0, "Only in " path) == 1 {sub(":", "", \$3);filePath = \$3 "/" \$NF;gsub(path, "", filePath);printf "rm -rf \\"%s\\"\\n", filePath;}' diff_result.txt > diff_files/delete_removed_files.sh
 
                                 if [ -s diff_files/delete_removed_files.sh ]; then chmod +x diff_files/delete_removed_files.sh && mv diff_files/delete_removed_files.sh diff_files/latest_version/delete_removed_files.sh; fi
                                 
@@ -195,7 +195,7 @@ def call(Map cfg = [:]) {
                                 command += "unzip -o ${cfg.DEPLOY_FOLDER}.zip -d ./ && "
                                 
                                 command += "echo '▶ [STEP 5] Run file deletion script if exists...' && "
-                                command += "if [ -f \"delete_removed_files.sh\" ]; then chmod +x \"delete_removed_files.sh\"; ./delete_removed_files.sh; fi && "
+                                command += "if [ -f \"delete_removed_files.sh\" ]; then chmod +x \"delete_removed_files.sh\"; ./delete_removed_files.sh || true; fi && "
                                 
                                 // [STEP 6] 백업 파일 복구 (backup/. 사용)
                                 command += "echo '▶ [STEP 6] Restore backup files...' && "
@@ -213,7 +213,7 @@ def call(Map cfg = [:]) {
                                 command += "unzip -o ${cfg.DEPLOY_FOLDER}.zip -d ./ && "
                                 
                                 command += "echo '▶ [STEP 5] Run file deletion script if exists...' && "
-                                command += "if [ -f \"delete_removed_files.sh\" ]; then chmod +x \"delete_removed_files.sh\"; ./delete_removed_files.sh; fi && "
+                                command += "if [ -f \"delete_removed_files.sh\" ]; then chmod +x \"delete_removed_files.sh\"; ./delete_removed_files.sh || true; fi && "
                                 
                                 // [STEP 6] 백업 파일 복구 (backup/. 사용)
                                 command += "echo '▶ [STEP 6] Restore backup files...' && "
