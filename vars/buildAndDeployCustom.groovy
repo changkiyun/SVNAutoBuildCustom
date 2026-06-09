@@ -203,7 +203,7 @@ def call(Map cfg = [:]) {
                                 
                                 // [STEP 7] 임시 압축파일 및 백업 폴더 정리
                                 command += "echo '▶ [STEP 7] Cleanup temporary files...' && "
-                                command += "rm -rf backup ${cfg.ZENIUS_VERSION}.zip ${cfg.ZENIUS_VERSION}_oz.zip ${cfg.SPECIFIC_REVISION}_version.zip && "
+                                command += "rm -rf backup ${cfg.ZENIUS_VERSION}.zip ${cfg.ZENIUS_VERSION}_oz.zip ${cfg.SPECIFIC_REVISION}_version.zip delete_removed_files.sh && "
                             } else {
                                 // [INIT FALSE] 패치 배포 로직 (기존 로직 유지)
                                 command += "echo '▶ [STEP 3] Restore specific version if exists...' && "
@@ -221,7 +221,7 @@ def call(Map cfg = [:]) {
                                 
                                 // [STEP 7] 임시 파일 정리
                                 command += "echo '▶ [STEP 7] Cleanup temporary files...' && "
-                                command += "rm -rf backup ${cfg.SPECIFIC_REVISION}_version.zip && "
+                                command += "rm -rf backup ${cfg.SPECIFIC_REVISION}_version.zip delete_removed_files.sh && "
                             }
                             
                             // [STEP 8] 톰캣 재시작
