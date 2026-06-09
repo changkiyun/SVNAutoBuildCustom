@@ -163,24 +163,11 @@ def call(Map cfg = [:]) {
             stage('Execute Remote Command') {
                 steps {
                     script {
-                        def transferArgs = [
-                            sourceFiles: "",
-                            remoteDirectory: "${cfg.TEST_WEB_PATH}",
-                            removePrefix: "" 
-                        ]
-
-                        // [전송 분기] INIT 여부에 따라 원격 서버로 보낼 파일 설정
-                        if (cfg.INIT != null && cfg.INIT == true) {
-                            // 전체 빌드 본 전송 (build/ 접두사 제거하여 zip 파일만 전송)
-                            transferArgs.sourceFiles = "build/${cfg.ZENIUS_VERSION}.zip,build/${cfg.ZENIUS_VERSION}_oz.zip"
-                            transferArgs.removePrefix = "build"
-                        } else {
-                            // 차이점 패치 파일들 전송
-                            transferArgs.sourceFiles = isDefferent ? "${cfg.SPECIFIC_REVISION}_version.zip,${cfg.DEPLOY_FOLDER}.zip" : "${cfg.DEPLOY_FOLDER}.zip"
-                        }
+                        def transfersList = []
+                        def command = ""
 
                         if (cfg.AUTO_RELOAD != null && cfg.AUTO_RELOAD) {
-                            def command = "set -x && cd ${cfg.TEST_WEB_PATH} && "
+                            command = "set -x && cd ${cfg.TEST_WEB_PATH} && "
                             
                             // [STEP 1] 백업 처리
                             if (cfg.FILES_TO_BACKUP != null && cfg.FILES_TO_BACKUP.size() > 0) {
@@ -199,18 +186,24 @@ def call(Map cfg = [:]) {
                             
                             // [배포 분기] INIT 여부에 따라 복구 및 압축 해제 명령 구성
                             if (cfg.INIT != null && cfg.INIT == true) {
-                                // [INIT TRUE] 전체 압축 파일 해제
+                                // [INIT TRUE] 전체 압축 파일 해제 및 패치 파일 해제
                                 command += "echo '▶ [STEP 3] Extract full build outputs...' && "
                                 command += "unzip -o ${cfg.ZENIUS_VERSION}.zip -d ./ && "
                                 command += "unzip -o ${cfg.ZENIUS_VERSION}_oz.zip -d ./ && "
                                 
-                                // [STEP 4] 백업 파일 복구 (backup/. 사용)
-                                command += "echo '▶ [STEP 4] Restore backup files...' && "
+                                command += "echo '▶ [STEP 4] Apply deployment package...' && "
+                                command += "unzip -o ${cfg.DEPLOY_FOLDER}.zip -d ./ && "
+                                
+                                command += "echo '▶ [STEP 5] Run file deletion script if exists...' && "
+                                command += "if [ -f \"delete_removed_files.sh\" ]; then chmod +x \"delete_removed_files.sh\"; ./delete_removed_files.sh; fi && "
+                                
+                                // [STEP 6] 백업 파일 복구 (backup/. 사용)
+                                command += "echo '▶ [STEP 6] Restore backup files...' && "
                                 command += "if [ -d backup ]; then cp -r backup/. ./; fi && "
                                 
-                                // [STEP 5] 임시 압축파일 및 백업 폴더 정리
-                                command += "echo '▶ [STEP 5] Cleanup temporary files...' && "
-                                command += "rm -rf backup ${cfg.ZENIUS_VERSION}.zip ${cfg.ZENIUS_VERSION}_oz.zip && "
+                                // [STEP 7] 임시 압축파일 및 백업 폴더 정리
+                                command += "echo '▶ [STEP 7] Cleanup temporary files...' && "
+                                command += "rm -rf backup ${cfg.ZENIUS_VERSION}.zip ${cfg.ZENIUS_VERSION}_oz.zip ${cfg.SPECIFIC_REVISION}_version.zip && "
                             } else {
                                 // [INIT FALSE] 패치 배포 로직 (기존 로직 유지)
                                 command += "echo '▶ [STEP 3] Restore specific version if exists...' && "
@@ -236,19 +229,73 @@ def call(Map cfg = [:]) {
                             command += "(${cfg.TEST_WEB_PATH}/../bin/shutdown.sh || true) && "
                             command += "${cfg.TEST_WEB_PATH}/../bin/startup.sh && "
                             command += "echo \"[DEPLOY COMPLETED]\""
+                        }
 
-                            transferArgs.execCommand = command
+                        // [전송 분기] INIT 여부에 따라 원격 서버로 보낼 파일 설정
+                        if (cfg.INIT != null && cfg.INIT == true) {
+                            // 1. 전체 빌드 본 전송 (build/ 접두사 제거하여 zip 파일만 전송)
+                            transfersList << sshTransfer([
+                                cleanRemote: false,
+                                excludes: '',
+                                execCommand: '', // 실행 명령어는 마지막 전송에서 수행
+                                execTimeout: 120000,
+                                flatten: false,
+                                makeEmptyDirs: false,
+                                noDefaultExcludes: false,
+                                patternSeparator: '[, ]+',
+                                remoteDirectory: "${cfg.TEST_WEB_PATH}",
+                                remoteDirectorySDF: false,
+                                removePrefix: 'build',
+                                sourceFiles: "build/${cfg.ZENIUS_VERSION}.zip,build/${cfg.ZENIUS_VERSION}_oz.zip",
+                                verbose: true
+                            ])
+                            
+                            // 2. 차이점 비교 결과 파일 전송 및 원격지 명령어 실행
+                            transfersList << sshTransfer([
+                                cleanRemote: false,
+                                excludes: '',
+                                execCommand: command,
+                                execTimeout: 120000,
+                                flatten: false,
+                                makeEmptyDirs: false,
+                                noDefaultExcludes: false,
+                                patternSeparator: '[, ]+',
+                                remoteDirectory: "${cfg.TEST_WEB_PATH}",
+                                remoteDirectorySDF: false,
+                                removePrefix: '',
+                                sourceFiles: isDefferent ? "${cfg.SPECIFIC_REVISION}_version.zip,${cfg.DEPLOY_FOLDER}.zip" : "${cfg.DEPLOY_FOLDER}.zip",
+                                verbose: true
+                            ])
+                        } else {
+                            // 차이점 패치 파일들 전송 및 원격지 명령어 실행
+                            transfersList << sshTransfer([
+                                cleanRemote: false,
+                                excludes: '',
+                                execCommand: command,
+                                execTimeout: 120000,
+                                flatten: false,
+                                makeEmptyDirs: false,
+                                noDefaultExcludes: false,
+                                patternSeparator: '[, ]+',
+                                remoteDirectory: "${cfg.TEST_WEB_PATH}",
+                                remoteDirectorySDF: false,
+                                removePrefix: '',
+                                sourceFiles: isDefferent ? "${cfg.SPECIFIC_REVISION}_version.zip,${cfg.DEPLOY_FOLDER}.zip" : "${cfg.DEPLOY_FOLDER}.zip",
+                                verbose: true
+                            ])
+                        }
+
+                        if (cfg.AUTO_RELOAD != null && cfg.AUTO_RELOAD) {
                             echo "Generated Remote Command: ${command}"
                         }
+
                         sshPublisher(
                             continueOnError: false,
                             failOnError: true,
                             publishers: [
                                 sshPublisherDesc(
                                     configName: "${cfg.TEST_SERVER_IP}",
-                                    transfers: [
-                                        sshTransfer(transferArgs)
-                                    ]
+                                    transfers: transfersList
                                 )
                             ]
                         )
