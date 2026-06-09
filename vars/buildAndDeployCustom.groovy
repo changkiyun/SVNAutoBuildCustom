@@ -246,8 +246,7 @@ def call(Map cfg = [:]) {
                                 remoteDirectory: "${cfg.TEST_WEB_PATH}",
                                 remoteDirectorySDF: false,
                                 removePrefix: 'build',
-                                sourceFiles: "build/${cfg.ZENIUS_VERSION}.zip,build/${cfg.ZENIUS_VERSION}_oz.zip",
-                                verbose: true
+                                sourceFiles: "build/${cfg.ZENIUS_VERSION}.zip,build/${cfg.ZENIUS_VERSION}_oz.zip"
                             ])
                             
                             // 2. 차이점 비교 결과 파일 전송 및 원격지 명령어 실행
@@ -263,8 +262,7 @@ def call(Map cfg = [:]) {
                                 remoteDirectory: "${cfg.TEST_WEB_PATH}",
                                 remoteDirectorySDF: false,
                                 removePrefix: '',
-                                sourceFiles: isDefferent ? "${cfg.SPECIFIC_REVISION}_version.zip,${cfg.DEPLOY_FOLDER}.zip" : "${cfg.DEPLOY_FOLDER}.zip",
-                                verbose: true
+                                sourceFiles: isDefferent ? "${cfg.SPECIFIC_REVISION}_version.zip,${cfg.DEPLOY_FOLDER}.zip" : "${cfg.DEPLOY_FOLDER}.zip"
                             ])
                         } else {
                             // 차이점 패치 파일들 전송 및 원격지 명령어 실행
@@ -280,8 +278,7 @@ def call(Map cfg = [:]) {
                                 remoteDirectory: "${cfg.TEST_WEB_PATH}",
                                 remoteDirectorySDF: false,
                                 removePrefix: '',
-                                sourceFiles: isDefferent ? "${cfg.SPECIFIC_REVISION}_version.zip,${cfg.DEPLOY_FOLDER}.zip" : "${cfg.DEPLOY_FOLDER}.zip",
-                                verbose: true
+                                sourceFiles: isDefferent ? "${cfg.SPECIFIC_REVISION}_version.zip,${cfg.DEPLOY_FOLDER}.zip" : "${cfg.DEPLOY_FOLDER}.zip"
                             ])
                         }
 
@@ -295,6 +292,7 @@ def call(Map cfg = [:]) {
                             publishers: [
                                 sshPublisherDesc(
                                     configName: "${cfg.TEST_SERVER_IP}",
+                                    verbose: true,
                                     transfers: transfersList
                                 )
                             ]
