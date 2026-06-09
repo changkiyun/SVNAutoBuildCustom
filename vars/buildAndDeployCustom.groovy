@@ -1,23 +1,6 @@
 // Groovy
 /**
  * 공유 라이브러리 – 빌드·배포 파이프라인
- *
- * 호출 예:
- *   buildAndDeploy(
- *       CREDENTIALSID      : 'svn-cred-id',
- *       REMOTE_PATH        : 'svn://example.com/repo/',
- *       BRANCH_NAME        : 'branches/myBranch/',
- *       SPECIFIC_REVISION  : '1234',
- *       ZENIUS_VERSION     : '1.2.3',
- *       DEPLOY_FOLDER      : 'deploy_pkg',
- *       SCP_USER           : 'deployUser',
- *       SCP_PW             : 'deployPw',
- *       TEST_SERVER_IP     : '192.0.2.10',
- *       TEST_WEB_PATH      : '/home/deploy/web',
- *       FILES_TO_BACKUP    : ["zenius8/WEB-INF/conf/db.properties", "zenius8/WEB-INF/conf/zenius.properties"],
- *       EXCLUDEDFILES      : ["config.xml", "README.md"]
-*        INIT               : true,
- *   )
  */
 def call(Map cfg = [:]) {
     def isDefferent = false
@@ -82,6 +65,7 @@ def call(Map cfg = [:]) {
                     stage('Checkout specific And Build') {
                         steps {
                             script {
+                                // 차이점 분석을 위해 SPECIFIC_REVISION 빌드는 항상 수행
                                 def revDir = "old/${cfg.SPECIFIC_REVISION}"
                                 // 기존에 체크아웃된 리비전이 있는지 확인
                                 if (!fileExists(revDir)) {
@@ -131,9 +115,8 @@ def call(Map cfg = [:]) {
             stage('Compare and Extract Differences') {
                 steps {
                     script {
-                        // 두 디렉토리의 차이점 비교 ....
+                        // 차이점 추출은 항상 수행 (SVN 커밋 등에 필요)
                         try {
-                            // 차이가 없을 경우 
                             sh """
                                 cd ./result
                                 diff -rq ${env.WORKSPACE}/old/${cfg.SPECIFIC_REVISION}/build/unzip/ latest_version/ > diff_result.txt
@@ -148,7 +131,6 @@ def call(Map cfg = [:]) {
                                 sh "cp ${env.WORKSPACE}/old/${cfg.SPECIFIC_REVISION}/build/${cfg.SPECIFIC_REVISION}_version.zip ${cfg.DEPLOY_FOLDER}.zip"
                             }
                         } catch (e) {
-                            // 차이가 있을 경우
                             isDefferent = true
                             echo "differences found."
                             sh """
@@ -183,15 +165,24 @@ def call(Map cfg = [:]) {
                     script {
                         def transferArgs = [
                             sourceFiles: "",
-                            remoteDirectory: "${cfg.TEST_WEB_PATH}"
+                            remoteDirectory: "${cfg.TEST_WEB_PATH}",
+                            removePrefix: "" 
                         ]
 
-                        transferArgs.sourceFiles = isDefferent ? "${cfg.SPECIFIC_REVISION}_version.zip,${cfg.DEPLOY_FOLDER}.zip" : "${cfg.DEPLOY_FOLDER}.zip"
+                        // [전송 분기] INIT 여부에 따라 원격 서버로 보낼 파일 설정
+                        if (cfg.INIT != null && cfg.INIT == true) {
+                            // 전체 빌드 본 전송 (build/ 접두사 제거하여 zip 파일만 전송)
+                            transferArgs.sourceFiles = "build/${cfg.ZENIUS_VERSION}.zip,build/${cfg.ZENIUS_VERSION}_oz.zip"
+                            transferArgs.removePrefix = "build"
+                        } else {
+                            // 차이점 패치 파일들 전송
+                            transferArgs.sourceFiles = isDefferent ? "${cfg.SPECIFIC_REVISION}_version.zip,${cfg.DEPLOY_FOLDER}.zip" : "${cfg.DEPLOY_FOLDER}.zip"
+                        }
 
                         if (cfg.AUTO_RELOAD != null && cfg.AUTO_RELOAD) {
-                            // 1. set -x 추가로 명령어 실행 과정을 콘솔에 다 찍히게 설정
                             def command = "set -x && cd ${cfg.TEST_WEB_PATH} && "
                             
+                            // [STEP 1] 백업 처리
                             if (cfg.FILES_TO_BACKUP != null && cfg.FILES_TO_BACKUP.size() > 0) {
                                 command += "echo '▶ [STEP 1] Backup files...' && "
                                 command += "rm -rf backup && "
@@ -202,26 +193,45 @@ def call(Map cfg = [:]) {
                                 }
                             }
                             
+                            // [STEP 2] 기존 컨텍스트 폴더 제거
                             command += "echo '▶ [STEP 2] Remove old contexts...' && "
                             command += "rm -rf ${cfg.ZENIUS_VERSION} ${cfg.ZENIUS_VERSION}_oz && "
                             
-                            command += "echo '▶ [STEP 3] Restore specific version if exists...' && "
-                            command += "if [ -f \"${cfg.SPECIFIC_REVISION}_version.zip\" ]; then unzip -o ${cfg.SPECIFIC_REVISION}_version.zip -d ./; fi && "
+                            // [배포 분기] INIT 여부에 따라 복구 및 압축 해제 명령 구성
+                            if (cfg.INIT != null && cfg.INIT == true) {
+                                // [INIT TRUE] 전체 압축 파일 해제
+                                command += "echo '▶ [STEP 3] Extract full build outputs...' && "
+                                command += "unzip -o ${cfg.ZENIUS_VERSION}.zip -d ./ && "
+                                command += "unzip -o ${cfg.ZENIUS_VERSION}_oz.zip -d ./ && "
+                                
+                                // [STEP 4] 백업 파일 복구 (backup/. 사용)
+                                command += "echo '▶ [STEP 4] Restore backup files...' && "
+                                command += "if [ -d backup ]; then cp -r backup/. ./; fi && "
+                                
+                                // [STEP 5] 임시 압축파일 및 백업 폴더 정리
+                                command += "echo '▶ [STEP 5] Cleanup temporary files...' && "
+                                command += "rm -rf backup ${cfg.ZENIUS_VERSION}.zip ${cfg.ZENIUS_VERSION}_oz.zip && "
+                            } else {
+                                // [INIT FALSE] 패치 배포 로직 (기존 로직 유지)
+                                command += "echo '▶ [STEP 3] Restore specific version if exists...' && "
+                                command += "if [ -f \"${cfg.SPECIFIC_REVISION}_version.zip\" ]; then unzip -o ${cfg.SPECIFIC_REVISION}_version.zip -d ./; fi && "
+                                
+                                command += "echo '▶ [STEP 4] Apply deployment package...' && "
+                                command += "unzip -o ${cfg.DEPLOY_FOLDER}.zip -d ./ && "
+                                
+                                command += "echo '▶ [STEP 5] Run file deletion script if exists...' && "
+                                command += "if [ -f \"delete_removed_files.sh\" ]; then chmod +x \"delete_removed_files.sh\"; ./delete_removed_files.sh; fi && "
+                                
+                                // [STEP 6] 백업 파일 복구 (backup/. 사용)
+                                command += "echo '▶ [STEP 6] Restore backup files...' && "
+                                command += "if [ -d backup ]; then cp -r backup/. ./; fi && "
+                                
+                                // [STEP 7] 임시 파일 정리
+                                command += "echo '▶ [STEP 7] Cleanup temporary files...' && "
+                                command += "rm -rf backup ${cfg.SPECIFIC_REVISION}_version.zip && "
+                            }
                             
-                            command += "echo '▶ [STEP 4] Apply deployment package...' && "
-                            command += "unzip -o ${cfg.DEPLOY_FOLDER}.zip -d ./ && "
-                            
-                            command += "echo '▶ [STEP 5] Run file deletion script if exists...' && "
-                            command += "if [ -f \"delete_removed_files.sh\" ]; then chmod +x \"delete_removed_files.sh\"; ./delete_removed_files.sh; fi && "
-                            
-                            // 2. 백업 복사 명령어 개선 (backup/* -> backup/.) - 빈 폴더 복사 시 에러 방지
-                            command += "echo '▶ [STEP 6] Restore backup files...' && "
-                            command += "if [ -d backup ]; then cp -r backup/. ./; fi && "
-                            
-                            command += "echo '▶ [STEP 7] Cleanup temporary files...' && "
-                            command += "rm -rf backup ${cfg.SPECIFIC_REVISION}_version.zip && "
-                            
-                            // 3. 톰캣 종료 오류 무시 처리 및 구동 로그 추가
+                            // [STEP 8] 톰캣 재시작
                             command += "echo '▶ [STEP 8] Restarting Tomcat...' && "
                             command += "(${cfg.TEST_WEB_PATH}/../bin/shutdown.sh || true) && "
                             command += "${cfg.TEST_WEB_PATH}/../bin/startup.sh && "
@@ -248,25 +258,24 @@ def call(Map cfg = [:]) {
             stage('Clean Directory') {
                 steps {
                     script {
-                        sh """
-                            rm -rf ${cfg.SPECIFIC_REVISION}_version.zip result
-                        """
+                        // 특정 리비전 zip 파일 및 임시 result 폴더 삭제
+                        sh "rm -rf ${cfg.SPECIFIC_REVISION}_version.zip result"
                     }
                 }
             }
             stage('Archive Differences') {
                 steps {
-                    // 생성된 ${cfg.DEPLOY_FOLDER}.zip 파일을 아티팩트로 아카이브
-                    archiveArtifacts artifacts: "${cfg.DEPLOY_FOLDER}.zip"
+                    script {
+                        // 아카이브는 항상 수행 (수정 사항 파일 보관용)
+                        archiveArtifacts artifacts: "${cfg.DEPLOY_FOLDER}.zip"
+                    }
                 }
             }
             stage('Commit Deploy Folder') {
                 steps {
                     script {
                         echo "Commit changed files to SVN Deploy Folder..."
-                        
                     }
-
                 }
             }
         }
